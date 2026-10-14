@@ -35,9 +35,10 @@
           safeMax: 3
           waitMin: 4
 
-        # Kept compatible with the family's other members. This project's primary
-        # judgement is the three-value choice; the 2-10 score is secondary and never
-        # decides on its own.
+        # Accepted, validated, and deliberately inert. Kept only so a profile that
+        # shares this key with the family's other members still loads; it changes no
+        # verdict and no score in this project. The verdict vocabulary here is the
+        # three-value choice and the risk band above, and `tau` gates neither.
         tau: null
 
         # There is deliberately no key here that turns on per-block screening, and

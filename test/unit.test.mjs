@@ -19,11 +19,11 @@ import { test } from 'node:test'
 
 import {
   EXIT, FORBIDDEN_KEYS, STATE_SECTIONS, VERDICT_OPTIONS, DEFAULT_CONFIG,
-  renderState, assertNoForbiddenKeys, checkStateTemplate, summarise,
+  renderState, assertNoForbiddenKeys, checkStateTemplate, summarise, unlandedCount,
   computeDigest, verifyDigest, judge, decideLocally, verify, classifyCase,
   resolveConfig, createTools, createSkill, TOOL_NAMES, FORBIDDEN_TOOL_NAMES,
   assertVerdictShape, VERDICT_QUESTION, URGENCY_QUESTION, interpret,
-  ContextVerdictError, PROGRAMMING_ERROR_CODES,
+  ContextVerdictError, PROGRAMMING_ERROR_CODES, CORPUS_VERDICTS,
 } from '../index.mjs'
 
 const config = resolveConfig({})
@@ -331,6 +331,29 @@ test('risk thresholds must leave a band for wait', () => {
     (error) => error.code === PROGRAMMING_ERROR_CODES.BAD_CONFIG)
 })
 
+test('tau is validated, carried, and inert -- as the docs now say', () => {
+  // `tau` is kept only so a profile shared with the family's other members still
+  // loads. It must not silently look like a connected control: it is refused when
+  // out of range, it is carried on the resolved config, and it changes no verdict.
+  assert.equal(DEFAULT_CONFIG.tau, null)
+  for (const tau of [0, 0.5, 1, null, undefined]) {
+    assert.equal(resolveConfig({ tau }).tau, tau ?? null)
+  }
+  for (const bad of [-0.1, 1.1, '0.5', NaN, {}]) {
+    assert.throws(
+      () => resolveConfig({ tau: bad }),
+      (error) => error.code === PROGRAMMING_ERROR_CODES.BAD_CONFIG,
+      `tau ${JSON.stringify(bad)} must be refused`,
+    )
+  }
+  // Inert: the same record decides the same way at either end of the range.
+  const summary = summarise(lostRecords())
+  const atZero = decideLocally(summary, resolveConfig({ tau: 0 }))
+  const atOne = decideLocally(summary, resolveConfig({ tau: 1 }))
+  assert.deepEqual(atZero, atOne, 'tau must not change what the record decides')
+  assert.equal(atZero.verdict, decideLocally(summary, config).verdict)
+})
+
 // ---------------------------------------------------------------------------
 // judge: the service paths
 // ---------------------------------------------------------------------------
@@ -362,6 +385,41 @@ test('a reachable service decides, and its answer is taken verbatim', async () =
     assert.equal(result.decidedBy, 'service')
     assert.equal(result.score, 7)
   }
+})
+
+test('G3 APPLIES TO THE SERVICE RESPONSE, NOT ONLY TO OUR OWN PAYLOADS', async () => {
+  // An independent check found that the forbidden-key gate ran on the way in
+  // (`{state, summary, digest}`) and on the way out (the result) and never on the
+  // service's own response. A service answering `{answer: 'wait', perBlock: [...]}`
+  // was accepted and the payload silently dropped -- the exact harm the gate
+  // exists to prevent: a plausible verdict returned while hiding that something
+  // upstream produces the forbidden shape.
+  //
+  // Worse in one direction than silence: a service that had decided per block
+  // would have its reasoning discarded and its answer presented as a
+  // session-level finding.
+  const { state, summary, digest } = build(ambiguousRecords())
+  const dirty = [
+    { answer: 'wait', perBlock: [{ id: 1, drop: true }] },
+    { answer: 'wait', blocks: [1, 2] },
+    { answer: 'preserve_first', selectedSeqs: [3] },
+    { answer: 'wait', meta: { droppable: ['a'] } },
+    { answer: 'wait', nodeSeq: 4 },
+  ]
+  for (const response of dirty) {
+    await assert.rejects(
+      () => judge({ state, summary, digest, config, client: async () => response }),
+      (error) => error.code === PROGRAMMING_ERROR_CODES.FORBIDDEN_KEY,
+      JSON.stringify(response),
+    )
+  }
+  // A clean response is still accepted, so the gate is not simply refusing
+  // everything -- which would satisfy the assertions above for the wrong reason.
+  const clean = await judge({
+    state, summary, digest, config, client: async () => ({ answer: 'wait', score: 5 }),
+  })
+  assert.equal(clean.verdict, 'wait')
+  assert.equal(clean.score, 5)
 })
 
 test('the local path does not contact the service', async () => {
@@ -442,8 +500,43 @@ test('an empty corpus is a refusal, not a pass', () => {
 })
 
 test('an unlabelled case is refused rather than guessed at', () => {
-  assert.throws(() => classifyCase({ id: 'a', verdict: 'wait' }),
-    (error) => error.code === PROGRAMMING_ERROR_CODES.BAD_CORPUS)
+  assert.throws(
+    () => classifyCase({ id: 'a', verdict: 'wait' }),
+    (error) => error.code === PROGRAMMING_ERROR_CODES.BAD_CORPUS,
+  )
+})
+
+test('AN UNRECOGNISED VERDICT IS REFUSED, NOT SILENTLY SCORED AS A PASS', () => {
+  // The same trap as the missing label, one field over. `verdict` not matching
+  // `safe_to_compact` used to be enough to score a `lost` case as `ok`, so any
+  // drift in the emitter -- a renamed field, a typo, a casing change -- turned
+  // every dangerous case into a silent pass at exit 0 with `lostLetThroughRate: 0`.
+  for (const verdict of [undefined, null, '', 'SAFE_TO_COMPACT', 'skippd', 'banana', 0, {}]) {
+    assert.throws(
+      () => classifyCase({ id: 'a', label: 'lost', verdict }),
+      (error) => error.code === PROGRAMMING_ERROR_CODES.BAD_CORPUS,
+      `lost / ${JSON.stringify(verdict)} must be refused`,
+    )
+  }
+  // The corpus that a drifted emitter produces: every verdict present and unknown.
+  assert.throws(
+    () => verify([
+      { id: 'lost-1', label: 'lost' },
+      { id: 'lost-2', label: 'lost' },
+      { id: 'keep-1', label: 'keep' },
+      { id: 'keep-2', label: 'keep' },
+    ]),
+    (error) => error.code === PROGRAMMING_ERROR_CODES.BAD_CORPUS,
+    'a corpus whose verdict field drifted must not report a clean run',
+  )
+  // The skip token is still scored as a skip, and is the only extra token accepted.
+  assert.equal(classifyCase({ id: 'a', label: 'lost', verdict: 'skipped' }).outcome, 'skipped')
+  assert.deepEqual([...CORPUS_VERDICTS], [...VERDICT_OPTIONS, 'skipped'])
+  // And the three real verdicts still score as before.
+  assert.equal(classifyCase({ id: 'a', label: 'lost', verdict: 'safe_to_compact' }).outcome,
+    'lost_let_through')
+  assert.equal(classifyCase({ id: 'a', label: 'lost', verdict: 'wait' }).outcome, 'ok')
+  assert.equal(classifyCase({ id: 'a', label: 'lost', verdict: 'preserve_first' }).outcome, 'ok')
 })
 
 test('an all-skipped corpus is reported, not silently clean', () => {
@@ -553,4 +646,58 @@ test('duplicate unlanded entries are counted once', () => {
   ])
   assert.equal(summary.uncommitted.length, 1)
   assert.equal(summary.todos.length, 1)
+})
+
+test('THE UNLANDED COUNT COVERS EVERY FIELD THE STATE RENDERS AS UNLANDED', () => {
+  // The count and the field set have to agree. `decisions` is read, deduped,
+  // emitted in the DECIDED section and described as unlanded state -- but 0.1.0
+  // left it out of the arithmetic, so a session whose only unlanded work was
+  // recorded decisions produced `unlandedCount === 0`. That is the one value that
+  // makes the local path answer `safe_to_compact` without asking anyone, so the
+  // omission was a false negative in the dangerous direction.
+  const decisionsOnly = summarise([
+    { kind: 'decision', text: 'we will ship the retry cap as configurable' },
+    { kind: 'decision', text: 'the migration runs before the backfill' },
+    { kind: 'decision', text: 'errors are retried three times, then surfaced' },
+    { kind: 'decision', text: 'the old endpoint is removed after one release' },
+  ])
+  assert.equal(decisionsOnly.decisions.length, 4, 'the reader must still find them')
+  assert.equal(unlandedCount(decisionsOnly), 4, 'and the count must include them')
+
+  // The consequence, stated as the thing that actually changed: this session is no
+  // longer told it is safe to compact.
+  assert.equal(decideLocally(decisionsOnly, config).verdict, 'preserve_first')
+
+  // Every counted field contributes, so no future field can be added to the
+  // summary without this test noticing that the arithmetic skipped it.
+  const oneEach = summarise([
+    { kind: 'write', path: 'a.mjs' },
+    { kind: 'todo_write', items: [{ what: 't', status: 'pending' }] },
+    { kind: 'question', what: 'q' },
+    { kind: 'decision', text: 'd' },
+    { kind: 'next_step', what: 'n' },
+  ])
+  assert.equal(oneEach.uncommitted.length, 1)
+  assert.equal(oneEach.todos.length, 1)
+  assert.equal(oneEach.questions.length, 1)
+  assert.equal(oneEach.decisions.length, 1)
+  assert.equal(oneEach.next_steps.length, 1)
+  assert.equal(unlandedCount(oneEach), 5)
+})
+
+test('a session of recorded decisions alone is not reported safe to compact', () => {
+  // The end-to-end version, through the renderer and the judge rather than the
+  // count: the state says DECIDED 4 and the verdict must not be safe_to_compact.
+  const { state, summary, digest } = build([
+    { kind: 'decision', text: 'the migration runs before the backfill' },
+    { kind: 'decision', text: 'errors are retried three times, then surfaced' },
+    { kind: 'decision', text: 'the old endpoint is removed after one release' },
+    { kind: 'decision', text: 'config keys are additive only' },
+  ])
+  assert.match(state, /^DECIDED 4$/m)
+  return judge({ state, summary, digest, config }).then((result) => {
+    assert.notEqual(result.verdict, 'safe_to_compact',
+      'a session holding unlanded decisions must never be called safe_to_compact')
+    assert.equal(result.verdict, 'preserve_first')
+  })
 })

@@ -30,7 +30,7 @@ export { computeDigest, verifyDigest } from './lib/digest.mjs'
 export {
   judge, decideLocally, interpret, assertVerdictShape, VERDICT_QUESTION, URGENCY_QUESTION,
 } from './lib/judge.mjs'
-export { verify, verifyExitCode, classifyCase, LABELS } from './lib/verify.mjs'
+export { verify, verifyExitCode, classifyCase, LABELS, CORPUS_VERDICTS } from './lib/verify.mjs'
 export { createTools, TOOL_NAMES, FORBIDDEN_TOOL_NAMES } from './tools.mjs'
 export { SKILL_NAME, createSkill } from './lib/skill.mjs'
 export { PROGRAMMING_ERROR_CODES, ContextVerdictError } from './lib/errors.mjs'

@@ -118,6 +118,68 @@ try {
   check(`all ${mod.FORBIDDEN_KEYS.length} forbidden keys are refused`,
     missingRefusals.length === 0, `accepted: ${missingRefusals.join(', ')}`)
 
+  // Depth, arrays and casing, not just the top level.
+  //
+  // A mutation test over this very file found that removing the recursive walk
+  // left it green: the injections above are one level deep, so they pass whether
+  // or not the scan recurses. A gate that only looks at the top level is a gate
+  // that misses a forbidden key three levels down.
+  let depthFailures = []
+  for (const key of ['perBlock', 'droppable', 'nodeSeq']) {
+    const shapes = [
+      { a: { b: { c: { [key]: 1 } } } },
+      { a: [{ [key]: 1 }] },
+      [{ d: { e: [key] } }, { [key.toUpperCase()]: 2 }],
+    ]
+    for (const [index, shape] of shapes.entries()) {
+      let caught = false
+      try { mod.assertNoForbiddenKeys(shape) } catch { caught = true }
+      if (!caught) depthFailures.push(`${key} shape ${index}`)
+    }
+  }
+  check('forbidden keys are refused at depth and inside arrays',
+    depthFailures.length === 0, depthFailures.join(', '))
+
+  // And the refusal must name the path, not only the parent.
+  let pathText = ''
+  try { mod.assertNoForbiddenKeys({ outer: { inner: [{ perBlock: 1 }] } }) }
+  catch (error) { pathText = (error.detail ?? []).join(' ') }
+  check('THE REFUSAL NAMES THE PATH, NOT THE PARENT',
+    pathText.includes('perBlock') && pathText.includes('inner'),
+    `detail was ${JSON.stringify(pathText)}`)
+
+  // The unlanded count must cover every field the state renders as unlanded.
+  // This is the blocker that shipped: a session whose only unlanded work was
+  // recorded *decisions* was reported safe_to_compact, because the count omitted
+  // decisions while the renderer printed a DECIDED section.
+  const perField = {
+    todos: [{ kind: 'todo_write', items: [{ what: 'x', status: 'pending' }] }],
+    uncommitted: [{ kind: 'write', path: 'a.mjs' }],
+    questions: [{ kind: 'question', what: 'q' }],
+    next_steps: [{ kind: 'next_step', what: 'n' }],
+    decisions: [{ kind: 'decision', what: 'd' }],
+  }
+  const uncounted = []
+  for (const [field, records] of Object.entries(perField)) {
+    const built = mod.summarise(records)
+    if (mod.unlandedCount(built) < 1) uncounted.push(field)
+  }
+  check('THE UNLANDED COUNT COVERS EVERY UNLANDED FIELD', uncounted.length === 0,
+    `counted as nothing: ${uncounted.join(', ')}`)
+
+  // An unrecognised verdict in a corpus must be refused, not scored. Scoring it
+  // `ok` on a `lost` case is a silent pass in the dangerous direction: a spelling
+  // change at the emitter would turn every lost case green and the exit code 0.
+  let verdictRefusal = null
+  try {
+    mod.verify([
+      { id: 'L', label: 'lost', verdict: 'SAFE_TO_COMPACT' },
+      { id: 'K', label: 'keep', verdict: 'safe_to_compact' },
+    ])
+  } catch (error) { verdictRefusal = error }
+  check('AN UNRECOGNISED CORPUS VERDICT IS REFUSED', verdictRefusal !== null,
+    'a misspelled verdict was scored, which on a lost case is a silent pass')
+
   // A four-option request must be refused; three is the whole vocabulary.
   let shapeRefusal = null
   try {
@@ -149,6 +211,20 @@ try {
   try { mod.verify([{ id: 'a', label: 'lost', verdict: 'wait' }]) } catch (error) { corpusRefusal = error }
   check('A SINGLE-LABELLED CORPUS IS REFUSED', corpusRefusal !== null,
     'a corpus with no keep case was scored, which verifies half the property')
+
+  // G3 must apply to the service response too. This injection is here because the
+  // hole it covers shipped: the gate ran on the way in and on the way out and
+  // never on what the service returned, so a per-block payload was accepted and
+  // silently dropped.
+  let responseRefusal = null
+  try {
+    mod.interpret({ answer: 'wait', perBlock: [{ id: 1 }] })
+  } catch (error) { responseRefusal = error }
+  check('G3 APPLIES TO THE SERVICE RESPONSE', responseRefusal !== null,
+    'a service response carrying perBlock was accepted; the gate does not cover '
+    + 'what comes back, only what goes out')
+  check('and a clean service response is still accepted',
+    mod.interpret({ answer: 'wait', score: 5 }).verdict === 'wait')
 
   // The verdicts are exactly the three, in order.
   check('the verdict vocabulary is verbatim',

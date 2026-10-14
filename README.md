@@ -34,6 +34,28 @@ Exactly three, in that order, and there is no argument that adds a fourth. If yo
 are asked to drop context, this is the wrong tool — say so, and use the three-value
 answer instead.
 
+## What counts as unlanded
+
+The closed field set is read, rendered into the state, and **counted**. The count is
+what the risk band compares against, so a field that is rendered but not counted
+would be work the verdict cannot see. All five unlanded fields count: unlanded
+todos, changed-and-uncommitted files, unanswered questions, unrecorded decisions,
+and next steps. `session` and `risk_hints` are not items and are not counted.
+
+| field | counted as unlanded | why |
+|---|---|---|
+| `uncommitted` | yes | changed and not committed |
+| `todos` | yes | not marked done in the session's own record |
+| `questions` | yes | asked and not answered |
+| `decisions` | yes | made and not recorded durably |
+| `next_steps` | yes | planned and not landed |
+| `risk_hints` | no | derived from the counts above, not an item |
+| `session` | no | identity, not work |
+
+A session whose only unlanded work is recorded decisions is therefore **not**
+`safe_to_compact`: the count is above zero, so the local rules either decline into
+`wait` or, past `waitMin`, answer `preserve_first`.
+
 ## Structural, not promised
 
 "We will not write that loop" is a promise, and the measurement above is what
@@ -123,7 +145,7 @@ optional peer.
 ## Testing
 
 ```sh
-npm test                  # 39 assertions, no host required
+npm test                  # 43 assertions, no host required
 npm run verify:artifacts   # what npm publish would actually ship
 ```
 

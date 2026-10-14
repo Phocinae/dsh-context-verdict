@@ -637,6 +637,153 @@ test('the unlanded summary never invents an item from an unknown record', () => 
   assert.deepEqual(summary.risk_hints, [])
 })
 
+// ---------------------------------------------------------------------------
+// the REAL transcript shape
+//
+// Everything above this line used an invented record shape. That was the defect:
+// run against a live 5,951-record session holding 38 open todos and 433 file
+// writes, the first version returned `unlandedCount: 0` -> `safe_to_compact`.
+//
+// The records below are copied from a real
+// `~/.dsh/sessions/**/session.v4.jsonl.zstd`.
+// ---------------------------------------------------------------------------
+
+/** One record exactly as the host writes it. */
+function realTodoRecord(todos) {
+  return { type: 'todo/write', seq: 710, time: 1791911173771, data: { todos } }
+}
+
+function realToolCall(name, args) {
+  return {
+    type: 'tool/call',
+    seq: 174,
+    time: 1791909286418,
+    data: {
+      turn: 1,
+      step: 21,
+      callId: 'call_00_x',
+      name,
+      // The arguments are a JSON **string**, not an object. This is the detail
+      // that made every file write invisible.
+      arguments: JSON.stringify(args),
+    },
+  }
+}
+
+test('A REAL todo/write record is read, not skipped', () => {
+  const summary = summarise([realTodoRecord([
+    { content: 'wire the retry path', status: 'pending' },
+    { content: 'landed already', status: 'completed' },
+    { content: 'in flight', status: 'in_progress' },
+  ])])
+  // `completed` is done; the other two are unlanded. The text is `content`, and a
+  // naive reader looking for `what` sees nothing at all.
+  assert.equal(summary.todos.length, 2)
+  assert.deepEqual(summary.todos.map((entry) => entry.what).sort(),
+    ['in flight', 'wire the retry path'])
+})
+
+test('A REAL tool/call write record is read, not skipped', () => {
+  // The discriminator is `type: 'tool/call'`; the tool's name is in `data.name`;
+  // and the path is inside a JSON string. All three differed from the invented
+  // shape.
+  const summary = summarise([
+    realToolCall('write', { file_path: 'D:\\p\\src\\retry.mjs', content: 'x' }),
+    realToolCall('edit', { file_path: 'D:\\p\\src\\backoff.mjs', content: 'y' }),
+  ])
+  assert.equal(summary.uncommitted.length, 2)
+  assert.deepEqual(summary.uncommitted.map((entry) => entry.path).sort(),
+    ['D:\\p\\src\\backoff.mjs', 'D:\\p\\src\\retry.mjs'])
+})
+
+test('reading and shelling do not count as unlanded writes', () => {
+  // `pwsh` may write a file and treating every shell call as a write would report
+  // uncommitted work for a session that only read things. Over-reporting is the
+  // safe direction, but it is not free, and this pins where the line is.
+  const summary = summarise([
+    realToolCall('read', { file_path: 'a.mjs' }),
+    realToolCall('grep', { pattern: 'x' }),
+    realToolCall('pwsh', { command: 'Get-ChildItem' }),
+    realToolCall('glob', { pattern: '*.mjs' }),
+  ])
+  assert.equal(summary.uncommitted.length, 0)
+})
+
+test('repeated edits to one file are ONE unlanded file', () => {
+  // A session rewrites the same file many times. Reporting 433 "files changed"
+  // beside a 161-entry list is how a reader learns to distrust both numbers.
+  const records = []
+  for (let i = 0; i < 20; i += 1) {
+    records.push(realToolCall('edit', { file_path: 'same.mjs', content: `v${i}` }))
+  }
+  const summary = summarise(records)
+  assert.equal(summary.uncommitted.length, 1)
+  assert.deepEqual(summary.risk_hints, ['1 file(s) changed and not committed'])
+})
+
+test('THE RISK HINT NUMBER MATCHES THE LIST IT DESCRIBES', () => {
+  const summary = summarise([
+    realTodoRecord([{ content: 'a', status: 'pending' }]),
+    realToolCall('write', { file_path: 'one.mjs' }),
+    realToolCall('write', { file_path: 'two.mjs' }),
+    realToolCall('edit', { file_path: 'two.mjs' }),
+  ])
+  assert.equal(summary.uncommitted.length, 2)
+  assert.ok(summary.risk_hints.includes('2 file(s) changed and not committed'),
+    JSON.stringify(summary.risk_hints))
+  assert.ok(summary.risk_hints.includes('1 todo(s) not done'),
+    JSON.stringify(summary.risk_hints))
+})
+
+test('A REAL WORKING SESSION IS NOT REPORTED SAFE TO COMPACT', () => {
+  // The end-to-end consequence, on records shaped like the real ones. Before the
+  // fix this returned `safe_to_compact` and never asked anyone.
+  const records = [
+    realTodoRecord([
+      { content: 'wire the retry path', status: 'pending' },
+      { content: 'landed', status: 'completed' },
+    ]),
+    realToolCall('write', { file_path: 'D:\\p\\src\\retry.mjs' }),
+    realToolCall('edit', { file_path: 'D:\\p\\src\\retry.mjs' }),
+    realToolCall('write', { file_path: 'D:\\p\\src\\backoff.mjs' }),
+    realToolCall('write', { file_path: 'D:\\p\\tests\\retry.test.mjs' }),
+  ]
+  const summary = summarise(records)
+  assert.ok(unlandedCount(summary) >= 4, String(unlandedCount(summary)))
+  const local = decideLocally(summary, config)
+  assert.ok(local, 'a session this clearly unlanded must be decided locally')
+  assert.equal(local.verdict, 'preserve_first')
+  assert.notEqual(local.verdict, 'safe_to_compact')
+})
+
+test('a real session with nothing unlanded is still safe_to_compact', () => {
+  // The other direction, so the fix is not simply "always refuse".
+  const records = [
+    realTodoRecord([{ content: 'all done', status: 'completed' }]),
+    realToolCall('read', { file_path: 'a.mjs' }),
+    realToolCall('pwsh', { command: 'Get-ChildItem' }),
+  ]
+  const summary = summarise(records)
+  const local = decideLocally(summary, config)
+  assert.equal(local.verdict, 'safe_to_compact')
+})
+
+test('the real shapes pass through the state renderer unchanged', () => {
+  const summary = summarise([
+    realTodoRecord([{ content: 'open thing', status: 'pending' }]),
+    realToolCall('write', { file_path: 'src/a.mjs' }),
+  ])
+  const state = renderState(summary)
+  // The renderer's own contract still holds over real input: template valid, and
+  // nothing that could name a block.
+  assert.doesNotThrow(() => checkStateTemplate(state, { stateCharCap: 4096 }))
+  const digest = computeDigest(state, summary)
+  assert.doesNotThrow(() => verifyDigest(state, summary, digest))
+  for (const name of STATE_SECTIONS) {
+    assert.match(state, new RegExp(`^${name}(\\s|$)`, 'm'))
+  }
+})
+
 test('duplicate unlanded entries are counted once', () => {
   const summary = summarise([
     { kind: 'write', path: 'a.mjs' },

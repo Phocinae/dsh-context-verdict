@@ -226,6 +226,50 @@ try {
   check('and a clean service response is still accepted',
     mod.interpret({ answer: 'wait', score: 5 }).verdict === 'wait')
 
+  // The real transcript shape, against a fixture of records copied from a live
+  // `~/.dsh/sessions/**/session.v4.jsonl.zstd`.
+  //
+  // This is the check that matters most, because the defect it covers shipped: the
+  // extractor was written against an invented shape and returned `unlandedCount: 0`
+  // on a real 5,951-record session holding 38 open todos and 433 file writes --
+  // which is `safe_to_compact` on work that exists nowhere durable. A unit test
+  // with the same invented shape could not have caught it, and did not.
+  const fixture = JSON.parse(
+    readFileSync(join(ROOT, 'fixtures/real-session-records.json'), 'utf8'))
+  const realSummary = mod.summarise(fixture)
+  check('REAL-SHAPED RECORDS YIELD UNLANDED WORK', mod.unlandedCount(realSummary) > 0,
+    'the extractor saw nothing in a session that plainly holds unlanded work; this '
+    + 'is the shipped defect, and it means the verdict is safe_to_compact')
+  check('real todo/write records are read',
+    realSummary.todos.length === 2,
+    `expected 2 unlanded todos (one completed), got ${realSummary.todos.length}`)
+  check('real tool/call writes are read, deduped by path',
+    realSummary.uncommitted.length === 2,
+    `expected 2 distinct files (three writes, one repeated), got `
+    + `${realSummary.uncommitted.length}`)
+  check('a read and a shell call are NOT counted as writes',
+    !realSummary.uncommitted.some((entry) => /unrelated/.test(entry.path)),
+    JSON.stringify(realSummary.uncommitted.map((e) => e.path)))
+  check('the risk-hint number matches the list it describes',
+    realSummary.risk_hints.includes(`${realSummary.uncommitted.length} file(s) changed and not committed`)
+    && realSummary.risk_hints.includes(`${realSummary.todos.length} todo(s) not done`),
+    JSON.stringify(realSummary.risk_hints))
+
+  const realLocal = mod.decideLocally(realSummary, config)
+  check('AND A REAL WORKING SESSION IS NOT SAFE TO COMPACT',
+    realLocal !== null && realLocal.verdict !== 'safe_to_compact',
+    `decideLocally returned ${realLocal === null ? 'null' : realLocal.verdict}`)
+
+  // The other direction: the fix must not be "always refuse", or the tool would be
+  // useless and every assertion above would pass for the wrong reason.
+  const quiet = mod.summarise([
+    { type: 'todo/write', data: { todos: [{ content: 'all done', status: 'completed' }] } },
+    { type: 'tool/call', data: { name: 'read', arguments: '{"file_path":"a.mjs"}' } },
+    { type: 'tool/call', data: { name: 'pwsh', arguments: '{"command":"dir"}' } },
+  ])
+  check('a real session with nothing unlanded is still safe_to_compact',
+    mod.decideLocally(quiet, config)?.verdict === 'safe_to_compact')
+
   // The verdicts are exactly the three, in order.
   check('the verdict vocabulary is verbatim',
     JSON.stringify(mod.VERDICT_OPTIONS)

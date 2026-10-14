@@ -1,7 +1,7 @@
 {
   "name": "dsh-context-verdict",
   "description": "DeepSeek Harness plugin: one session-level verdict on whether compaction would lose unlanded state. Structurally incapable of per-block screening, which was measured wrong.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Phocinae/dsh-context-verdict.git"
@@ -27,6 +27,7 @@
   "files": [
     "index.mjs",
     "tools.mjs",
+    "fixtures",
     "lib",
     "skills",
     "cordis.patch.yml",

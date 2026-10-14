@@ -1,0 +1,80 @@
+[
+  {
+    "type": "todo/write",
+    "seq": 12,
+    "time": 1791908960000,
+    "data": {
+      "todos": [
+        { "content": "wire the retry path", "status": "pending" },
+        { "content": "landed already", "status": "completed" },
+        { "content": "in flight right now", "status": "in_progress" }
+      ]
+    }
+  },
+  {
+    "type": "tool/call",
+    "seq": 19,
+    "time": 1791908968776,
+    "data": {
+      "turn": 1,
+      "step": 1,
+      "callId": "call_example_1",
+      "name": "write",
+      "arguments": "{\"file_path\": \"src/retry.mjs\", \"content\": \"export const retry = () => {}\"}"
+    }
+  },
+  {
+    "type": "tool/call",
+    "seq": 21,
+    "time": 1791908970000,
+    "data": {
+      "turn": 1,
+      "step": 2,
+      "callId": "call_example_2",
+      "name": "edit",
+      "arguments": "{\"file_path\": \"src/retry.mjs\", \"old_string\": \"a\", \"new_string\": \"b\"}"
+    }
+  },
+  {
+    "type": "tool/call",
+    "seq": 22,
+    "time": 1791908971000,
+    "data": {
+      "turn": 1,
+      "step": 3,
+      "callId": "call_example_3",
+      "name": "write",
+      "arguments": "{\"file_path\": \"tests/retry.test.mjs\", \"content\": \"test('retry', () => {})\"}"
+    }
+  },
+  {
+    "type": "tool/call",
+    "seq": 23,
+    "time": 1791908972000,
+    "data": {
+      "turn": 1,
+      "step": 4,
+      "callId": "call_example_4",
+      "name": "read",
+      "arguments": "{\"file_path\": \"src/unrelated.mjs\"}"
+    }
+  },
+  {
+    "type": "tool/call",
+    "seq": 24,
+    "time": 1791908973000,
+    "data": {
+      "turn": 1,
+      "step": 5,
+      "callId": "call_example_5",
+      "name": "pwsh",
+      "arguments": "{\"command\": \"Get-ChildItem -Force\"}"
+    }
+  },
+  {
+    "type": "workspace/changes",
+    "seq": 25,
+    "time": 1791908974000,
+    "data": { "turn": 1 }
+  }
+]

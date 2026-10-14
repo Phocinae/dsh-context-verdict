@@ -1,5 +1,86 @@
 # Changelog
 
+## 0.1.2 — 2026-10-14
+
+The most serious defect this project has had, found by running the released
+package against a **real** session transcript rather than a fixture.
+
+### Blocker — the extractor read the wrong record shape, so every session looked clean
+
+`summarise()` was written against an invented record shape. Run against a live
+`~/.dsh/sessions/**/session.v4.jsonl.zstd` — 5,951 records, 1,032 tool calls, 38
+open todos, 433 file writes — the **released 0.1.1** returned:
+
+```
+records fed : 5951
+todos       : 0
+uncommitted : 0
+unlanded    : 0
+verdict     : safe_to_compact
+```
+
+`safe_to_compact` is the verdict that lets a compaction proceed. On a session with
+38 open todos and 433 file writes, this tool said there was nothing to lose. It is
+the exact failure the project exists to prevent, produced by the project itself.
+
+Three details were wrong, and **each one alone was enough** to make the count zero:
+
+| detail | invented shape | real shape |
+|---|---|---|
+| discriminator | `kind`, or a `type` of `write`/`edit` | `type: "tool/call"`, tool name in `data.name` |
+| todo text | `what` | `content`, nested under `data.todos` |
+| tool arguments | an object | **a JSON string** |
+
+After the fix, the same session gives:
+
+```
+todos       : 34
+uncommitted : 161
+risk_hints  : ["161 file(s) changed and not committed","34 todo(s) not done"]
+unlanded    : 195
+verdict     : preserve_first
+```
+
+Two further corrections came out of it:
+
+* **repeated edits to one file are one unlanded file.** 433 writes touched 161
+  distinct paths, and reporting the write count beside a 161-entry list trains a
+  reader to distrust both numbers. The risk hints are now derived *after*
+  deduplication, so each hint's number matches the list it describes — a test
+  asserts that, because a summary whose numbers disagree with its own lists is
+  worse than no summary.
+* **`pwsh` is deliberately not a writing tool.** A shell command may write a file,
+  and treating every shell call as a write would report uncommitted work for a
+  session that only read things. The omission is the safe direction: over-reporting
+  sends a session to `preserve_first` for nothing, while guessing the other way
+  loses the work.
+
+### How it was found, and what that says about the earlier checks
+
+Three independent verifiers looked at 0.1.1, and one of them flagged this as a
+**residual uncertainty it could not resolve** — the host's transcript format was
+not readable from the checkout, so it declined to call it a defect. It was right to
+flag it and right to be careful.
+
+The gap was in what the tests used, not in how many there were. Fifty-two assertions
+could not catch it because every one of them fed the extractor records in the shape
+the extractor expected. A test that shares an assumption with the code cannot test
+that assumption.
+
+So the fix is not only the parser. `fixtures/real-session-records.json` holds
+records copied from a live transcript, the artefact check reads it and requires
+unlanded work to be found, and removing the real-shape support makes the check go
+red — verified by mutation, not asserted.
+
+The artefact check went from 74 conditions to 81.
+
+### Tests
+
+44 → 52 assertions, with a dedicated group for the real shape: a real `todo/write`,
+a real `tool/call`, reads and shell calls not counting as writes, repeated edits
+deduping to one file, the hints matching their lists, a real working session not
+being `safe_to_compact`, and — the other direction — a real session with nothing
+unlanded still being `safe_to_compact`, so the fix is not simply "always refuse".
 ## 0.1.1 — 2026-10-14
 
 Three defects from an independent verification pass over 0.1.0, one of them the

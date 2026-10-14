@@ -1,0 +1,79 @@
+{
+  "name": "dsh-context-verdict",
+  "description": "DeepSeek Harness plugin: one session-level verdict on whether compaction would lose unlanded state. Structurally incapable of per-block screening, which was measured wrong.",
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Phocinae/dsh-context-verdict.git"
+  },
+  "homepage": "https://github.com/Phocinae/dsh-context-verdict#readme",
+  "bugs": {
+    "url": "https://github.com/Phocinae/dsh-context-verdict/issues"
+  },
+  "author": "PerryLink",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": {
+      "default": "./index.mjs"
+    },
+    "./lib/state.mjs": "./lib/state.mjs",
+    "./lib/judge.mjs": "./lib/judge.mjs",
+    "./lib/verify.mjs": "./lib/verify.mjs",
+    "./lib/summary.mjs": "./lib/summary.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "tools.mjs",
+    "lib",
+    "skills",
+    "cordis.patch.yml",
+    "README.md",
+    "README-zh.md",
+    "ARCHITECTURE.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis-plugin",
+    "context",
+    "compaction",
+    "verdict",
+    "deterministic",
+    "no-per-block",
+    "phocinae"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.1.6-0 <0.2.0 || >=0.2.0-0 <0.3.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "verify:artifacts": "node scripts/verify-artifacts.mjs",
+    "prepack": "npm test"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5-alpha.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  },
+  "license": "Apache-2.0",
+  "funding": {
+    "type": "individual",
+    "url": "https://github.com/sponsors/PerryLink"
+  }
+}

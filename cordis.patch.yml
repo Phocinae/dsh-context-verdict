@@ -1,0 +1,47 @@
+# dsh-context-verdict bundle patch — one session-level verdict before compaction.
+#
+# Layer order: this bundle patch, then the profile patch, then
+# $DSH_HOME/cordis.patch.yml, then --patch overlays; later layers win.
+#
+# Every key below has a documented default in lib/config.mjs, so this file can be
+# reduced to `enabled: true` and the plugin still works.
+- insert:
+    - id: context_verdict
+      name: dsh-context-verdict
+      config:
+        # The state character budget.
+        #
+        # Exceeding it is exit 2, NOT a verdict. A state too large to send is a
+        # configuration or content problem, and reporting it as "unsafe to compact"
+        # would make an infrastructure limit look like a finding about the session.
+        stateCharCap: 4096
+
+        # The decision service. Absent or unreachable is a `wait` verdict with the
+        # reason stated -- never permission to compact.
+        endpoint: 'http://127.0.0.1:8787'
+        timeoutMs: 20000
+
+        # The risk band.
+        #
+        #   unlanded == 0                     -> safe_to_compact (decided locally)
+        #   1 .. safeMax                      -> the service is asked
+        #   safeMax+1 .. waitMin-1            -> the service is asked
+        #   >= waitMin                        -> preserve_first (decided locally)
+        #
+        # `safeMax` must be less than `waitMin`, or the `wait` verdict becomes
+        # unreachable and the configuration is refused at load. A configuration that
+        # removes a verdict from the vocabulary is not a tuning choice.
+        risk:
+          safeMax: 3
+          waitMin: 4
+
+        # Kept compatible with the family's other members. This project's primary
+        # judgement is the three-value choice; the 2-10 score is secondary and never
+        # decides on its own.
+        tau: null
+
+        # There is deliberately no key here that turns on per-block screening, and
+        # there is no way to add one from configuration. A per-block screener was
+        # measured judging a fix-bearing block droppable at confidence 0.323 and a
+        # nursery rhyme worth keeping at 0.691. The capability is absent in code, not
+        # disabled by a setting.

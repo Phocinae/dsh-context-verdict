@@ -1,0 +1,57 @@
+name: ci
+
+# This package had no workflow at all until 2026-10-20. Its tests existed and
+# passed locally, but nothing ran them on a push — the project's "a check that
+# only runs on my machine is not a check" failure shape. This file is the CI half;
+# release.yml is the OIDC publishing half (npm trusted publishing needs a
+# workflow, which is why the long-lived npm token could not be retired first).
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }} · node${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # No `npm install`: the suite is standard-library Node, and a lockfile that
+      # only exists to install nothing is another thing that can drift.
+      - name: Test suite
+        run: npm test
+
+      - name: Packed-artefact self-check
+        run: npm run verify:artifacts
+
+  mutation:
+    # The verifier itself must be able to go red. mutation-test.mjs.py removes
+    # each gate one at a time and requires verify-artifacts to catch it; a check
+    # that stays green under mutation is decoration, and that is exactly how the
+    # service-response hole shipped in 0.1.2.
+    name: mutation test (every removal must be caught)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Remove each gate one at a time
+        run: python scripts/mutation-test.mjs.py

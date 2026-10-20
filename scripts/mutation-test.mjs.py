@@ -13,7 +13,7 @@ import sys
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
-REPO = r"D:\Projects\phociane-project\_work\build\dsh-context-verdict"
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (label, relative path, exact text to remove or alter)
 MUTATIONS = [

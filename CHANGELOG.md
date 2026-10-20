@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Fixed — the mutation test only ran on the machine it was written on
+
+`scripts/mutation-test.mjs.py` hard-coded
+`D:\Projects\phociane-project\_work\build\dsh-context-verdict` — an old path from
+before the project directory was reorganised, and a Windows path besides. On any
+other checkout it would point at nothing. It now derives the repository root from
+`__file__`, which is what lets the new CI job actually run it.
+
+### Added — CI and an OIDC publishing path
+
+`ci.yml` runs the unit suite and the packed-artefact self-check on Linux, Windows
+and macOS (Node 22 and 24), plus the mutation test on Linux. `release.yml`
+publishes with npm trusted publishing (`id-token: write`, npm >= 11.5.1); until a
+trusted publisher is configured on npmjs.com there is no token to fall back to,
+which is the intended failure.
+
 ## 0.1.2 — 2026-10-14
 
 The most serious defect this project has had, found by running the released

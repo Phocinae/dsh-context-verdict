@@ -2,6 +2,15 @@
 
 One verdict for a whole session, before it is compacted.
 
+## Quick start
+
+```sh
+dsh plugin --profile web add dsh-context-verdict@0.1.2
+```
+
+context_verdict_build / context_verdict_judge is now available; Build a session snapshot, then ask for one verdict on whether compaction would lose unlanded state.
+
+
 ## The question, and the question this tool refuses
 
 > **Is there unlanded state that a compaction would lose?**

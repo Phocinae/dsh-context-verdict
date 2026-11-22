@@ -2,14 +2,15 @@
 
 One verdict for a whole session, before it is compacted.
 
+Last verified on DeepSeek Harness `dsh-v0.2.3-alpha.1` (2026-11-22).
+
 ## Quick start
 
 ```sh
-dsh plugin --profile web add dsh-context-verdict@0.1.2
+dsh plugin --profile web add dsh-context-verdict@0.1.3
 ```
 
 context_verdict_build / context_verdict_judge is now available; Build a session snapshot, then ask for one verdict on whether compaction would lose unlanded state.
-
 
 ## The question, and the question this tool refuses
 
